@@ -11,6 +11,13 @@ fn get_texture(src: &str, rl: &mut RaylibHandle, thread: &RaylibThread) -> Textu
         .expect("could not load texture from image")
 }
 
+#[derive(PartialEq)]
+enum State {
+    Game,
+    GameOver,
+    MainMenu,
+}
+
 pub struct Time {
     pub time_to_pass: f32,
     pub start: Instant,
@@ -91,6 +98,7 @@ impl GameKey {
         self.tint = self.hashchars.get(&self.character).unwrap().to_owned();
     }
 }
+
 fn main() {
     let win_width = 1100;
     let win_height = 600;
@@ -120,91 +128,124 @@ fn main() {
 
     let mut water_consumed = (bottle.height() / 2) as f32;
     let mut key_gen_time = Time {
-        time_to_pass: 1.0,
+        time_to_pass: 3.0,
         ..Default::default()
     };
+    let mut gen_time_increase = Time {
+        time_to_pass: 2.0,
+        ..Default::default()
+    };
+    let mut dt = 0.0;
+    let mut consumption_rate = 30.0;
+    let mut key_drop_factor = 1.0;
+
+    let mut score = 0;
+    let mut state = State::Game;
 
     while !rl.window_should_close() {
+        let start = time::Instant::now();
         let mut d = rl.begin_drawing(&thread);
+        d.clear_background(Color::BLACK);
 
-        // -- UPDATE
-        unsafe {
-            if IsKeyDown(KeyboardKey::KEY_DOWN as i32) {
-                water_consumed -= 0.05;
-            } else if IsKeyDown(KeyboardKey::KEY_UP as i32) {
-                water_consumed += 0.05;
-            }
-        }
+        if state == State::Game {
+            // -- UPDATE
+            if key_gen_time.update() {
+                let n_keys = rand::thread_rng().gen_range(1..4);
 
-        if key_gen_time.update() {
-            let rand_x = rand::thread_rng().gen_range(600..win_width - 70) as f32;
-            let rand_char_ascii = rand::thread_rng().gen_range(65..90);
-            let rand_char = char::from_u32(rand_char_ascii).unwrap();
-            let mut temp_key = GameKey {
-                pos: Vector2::new(rand_x, -70.0),
-                character: rand_char,
-                ..Default::default()
-            };
-            temp_key.set_color();
-            keys.push(temp_key);
-        }
-
-        for key in &mut keys {
-            key.pos.y += 0.1;
-
-            if key.pos.y > win_height as f32 {
-                key.alive = false;
-            }
-
-            key._active =
-                key.pos.y + key_img.height() as f32 > base_y as f32 && key.pos.y < base_y as f32;
-
-            unsafe {
-                if key._active && IsKeyDown(key.character as i32) {
-                    water_consumed += 20.0;
-                    key.alive = false;
+                for i in 0..n_keys {
+                    let i = i as f32;
+                    let rand_x = rand::thread_rng().gen_range(600..win_width - 70) as f32;
+                    let rand_char_ascii = rand::thread_rng().gen_range(65..90);
+                    let rand_char = char::from_u32(rand_char_ascii).unwrap();
+                    let mut temp_key = GameKey {
+                        pos: Vector2::new(rand_x, -70.0 - (i * 70.0)),
+                        character: rand_char,
+                        ..Default::default()
+                    };
+                    temp_key.set_color();
+                    keys.push(temp_key);
                 }
             }
-        }
-        keys.retain(|x| x.alive);
 
-        water_consumed -= 0.01;
+            for key in &mut keys {
+                key.pos.y += 0.03 * key_drop_factor;
 
-        // -- DRAW
-        d.clear_background(Color::BLACK);
-        d.draw_texture(&bg, 0, 0, Color::WHITE);
+                if key.pos.y > win_height as f32 {
+                    key.alive = false;
+                }
 
-        d.draw_texture_v(&bottle, bottle_pos, Color::WHITE);
+                key._active = key.pos.y + key_img.height() as f32 > base_y as f32
+                    && key.pos.y < base_y as f32;
 
-        d.draw_texture_rec(
-            &bottle_filled,
-            Rectangle::new(
-                0.0,
-                bottle_filled.height() as f32 - water_consumed,
-                bottle.width() as f32,
-                water_consumed,
-            ),
-            Vector2::new(
-                bottle_pos.x,
-                bottle_pos.y + (bottle_filled.height() as f32 - water_consumed),
-            ),
-            Color::WHITE,
-        );
+                unsafe {
+                    if key._active && IsKeyDown(key.character as i32) {
+                        water_consumed += 20.0;
+                        key.alive = false;
+                        score += 100;
+                    }
+                }
+            }
+            keys.retain(|x| x.alive);
 
-        // -- DRAW - KEYS
-        for key in &keys {
-            d.draw_texture_v(&key_img, key.pos, key.tint);
-            d.draw_text(
-                key.character.to_string().as_str(),
-                key.pos.x as i32 + 15,
-                key.pos.y as i32 + 15,
-                50,
-                Color::BLACK,
+            if gen_time_increase.update() && key_drop_factor < 6.0 {
+                consumption_rate += 5.0;
+                key_drop_factor += 0.5;
+            }
+
+            if key_drop_factor < 6.0 {
+                key_gen_time.time_to_pass -= 0.0001 * dt;
+            }
+            water_consumed -= consumption_rate * dt;
+
+            // -- FRAMERATE INDEPENDANCE
+            let raw_dt = start.elapsed().as_secs_f32();
+            dt = raw_dt * 60.0;
+
+            // -- GAME LOSS
+            if water_consumed <= 0.0 {
+                state = State::GameOver;
+            }
+
+            // -- DRAW
+            d.draw_texture(&bg, 0, 0, Color::WHITE);
+
+            d.draw_texture_v(&bottle, bottle_pos, Color::WHITE);
+
+            d.draw_texture_rec(
+                &bottle_filled,
+                Rectangle::new(
+                    0.0,
+                    bottle_filled.height() as f32 - water_consumed,
+                    bottle.width() as f32,
+                    water_consumed,
+                ),
+                Vector2::new(
+                    bottle_pos.x,
+                    bottle_pos.y + (bottle_filled.height() as f32 - water_consumed),
+                ),
+                Color::WHITE,
             );
-        }
 
-        // -- UI LINES
-        d.draw_rectangle(600, base_y, win_width, 10, Color::BLACK);
-        d.draw_rectangle(600, 0, 10, win_height, Color::BLACK);
+            // -- DRAW - KEYS
+            for key in &keys {
+                d.draw_texture_v(&key_img, key.pos, key.tint);
+                d.draw_text(
+                    key.character.to_string().as_str(),
+                    key.pos.x as i32 + 15,
+                    key.pos.y as i32 + 15,
+                    50,
+                    Color::BLACK,
+                );
+            }
+
+            // -- UI LINES
+            d.draw_rectangle(600, base_y, win_width, 10, Color::BLACK);
+            d.draw_rectangle(600, 0, 10, win_height, Color::BLACK);
+
+            // -- INFORMATION UI
+            d.draw_text(format!("SCORE: {}", score).as_str(), 0, 0, 54, Color::BLACK);
+        } else if state == State::GameOver {
+            d.draw_text("GAME OVER\n BIATCH", 150, win_height / 2, 120, Color::WHITE);
+        }
     }
 }
