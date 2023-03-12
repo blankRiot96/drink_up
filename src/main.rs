@@ -1,4 +1,4 @@
-use raylib::prelude::*;
+use raylib::{ffi::IsKeyDown, prelude::*};
 
 fn get_texture(src: &str, rl: &mut RaylibHandle, thread: &RaylibThread) -> Texture2D {
     let img = Image::load_image(src).expect("Could not load image");
@@ -20,32 +20,37 @@ fn main() {
     let bottle_filled = get_texture("assets/bottle_fill.png", &mut rl, &thread);
 
     let bottle_pos = Vector2::new(75.0, 125.0);
-    let water_consumed = 100.0;
+
+    let mut water_consumed = 100.0;
 
     while !rl.window_should_close() {
         let mut d = rl.begin_drawing(&thread);
 
+        unsafe {
+            if IsKeyDown(KeyboardKey::KEY_DOWN as i32) {
+                water_consumed -= 0.05;
+            } else if IsKeyDown(KeyboardKey::KEY_UP as i32) {
+                water_consumed += 0.05;
+            }
+        }
         d.clear_background(Color::BLACK);
         d.draw_texture(&bg, 0, 0, Color::WHITE);
 
         d.draw_texture_v(&bottle, bottle_pos, Color::WHITE);
-        d.draw_texture_pro(
+
+        d.draw_texture_rec(
             &bottle_filled,
             Rectangle::new(
                 0.0,
-                0.0,
-                bottle_filled.width as f32,
                 bottle_filled.height as f32 - water_consumed,
-            ),
-            Rectangle::new(
-                bottle_pos.x,
-                bottle_pos.y,
                 bottle.width as f32,
-                bottle.height as f32,
+                water_consumed,
             ),
-            bottle_pos,
-            180.0,
+            Vector2::new(
+                bottle_pos.x,
+                bottle_pos.y + (bottle_filled.height as f32 - water_consumed),
+            ),
             Color::WHITE,
-        )
+        );
     }
 }
