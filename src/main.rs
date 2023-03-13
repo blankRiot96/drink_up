@@ -140,7 +140,7 @@ fn main() {
     let mut key_drop_factor = 1.0;
 
     let mut score = 0;
-    let mut state = State::Game;
+    let mut state = State::MainMenu;
 
     while !rl.window_should_close() {
         let start = time::Instant::now();
@@ -188,7 +188,7 @@ fn main() {
             keys.retain(|x| x.alive);
 
             if gen_time_increase.update() && key_drop_factor < 6.0 {
-                consumption_rate += 5.0;
+                consumption_rate += 7.5;
                 key_drop_factor += 0.5;
             }
 
@@ -246,6 +246,8 @@ fn main() {
             d.draw_text(format!("SCORE: {}", score).as_str(), 0, 0, 54, Color::BLACK);
         } else if state == State::GameOver {
             d.draw_text("GAME OVER\n BIATCH", 150, win_height / 2, 120, Color::WHITE);
+        } else if state == State::MainMenu {
+            d.draw_circle(0, 0, 32.0, Color::ORANGE);
         }
     }
 }
